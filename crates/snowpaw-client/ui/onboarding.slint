@@ -392,6 +392,10 @@ export component Onboarding inherits Rectangle {
     in property <string> server-label;
     in property <string> login-error;
     in property <bool> login-busy;
+    // Server guide commands (adapted per OS: Linux/macOS vs Windows).
+    in property <string> guide-init-cmd: "snowpaw-server init ~/.local/share/snowpaw";
+    in property <string> guide-password-cmd: "snowpaw-server set-password --config ~/.local/share/snowpaw/server.toml";
+    in property <string> guide-run-cmd: "snowpaw-server run --config ~/.local/share/snowpaw/server.toml";
 
     callback code-edited(string);
     callback test-connection(string, string);
@@ -657,7 +661,7 @@ export component Onboarding inherits Rectangle {
                             CommandStep {
                                 number: 1;
                                 title: "Create the server";
-                                command: "snowpaw-server init ~/.local/share/snowpaw";
+                                command: root.guide-init-cmd;
                                 note: "It prints a connection code at the end. Keep that window open; you’ll paste the code next.";
                                 copy(t) => {
                                     root.copy(t);
@@ -669,7 +673,7 @@ export component Onboarding inherits Rectangle {
                             CommandStep {
                                 number: 2;
                                 title: "Choose your password";
-                                command: "snowpaw-server set-password --config ~/.local/share/snowpaw/server.toml";
+                                command: root.guide-password-cmd;
                                 copy(t) => {
                                     root.copy(t);
                                 }
@@ -680,7 +684,7 @@ export component Onboarding inherits Rectangle {
                             CommandStep {
                                 number: 3;
                                 title: "Start it";
-                                command: "snowpaw-server run --config ~/.local/share/snowpaw/server.toml";
+                                command: root.guide-run-cmd;
                                 note: "Leave it running while you use snowpaw.";
                                 copy(t) => {
                                     root.copy(t);

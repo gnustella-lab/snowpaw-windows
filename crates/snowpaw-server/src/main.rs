@@ -50,6 +50,32 @@ enum Cmd {
     Version,
 }
 
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if s == "~" || s.starts_with("~/") || s.starts_with(r"~\") {
+        #[cfg(windows)]
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from);
+        #[cfg(not(windows))]
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+
+        if let Some(mut h) = home {
+            if s.len() > 1 {
+                let sub = &s[2..];
+                let trimmed = sub.trim_start_matches(|c| c == '/' || c == '\\');
+                #[cfg(windows)]
+                let normalized = trimmed.replace('/', "\\");
+                #[cfg(not(windows))]
+                let normalized = trimmed.replace('\\', "/");
+                h.push(normalized);
+            }
+            return h;
+        }
+    }
+    path
+}
+
 fn parse_args(mut args: impl Iterator<Item = OsString>) -> Result<Cmd, String> {
     let Some(cmd) = args.next() else {
         return Ok(Cmd::Help);
@@ -73,18 +99,18 @@ fn parse_args(mut args: impl Iterator<Item = OsString>) -> Result<Cmd, String> {
     };
     match cmd.as_str() {
         "init" => match rest.as_slice() {
-            [dir] => Ok(Cmd::Init(PathBuf::from(dir))),
+            [dir] => Ok(Cmd::Init(expand_tilde(PathBuf::from(dir)))),
             _ => Err("usage: snowpaw-server init <DATA_DIR>".into()),
         },
         "set-password" => {
-            config_flag(&rest, true).map(|(config, stdin)| Cmd::SetPassword { config, stdin })
+            config_flag(&rest, true).map(|(config, stdin)| Cmd::SetPassword { config: expand_tilde(config), stdin })
         }
-        "run" => config_flag(&rest, false).map(|(c, _)| Cmd::Run(c)),
-        "fingerprint" => config_flag(&rest, false).map(|(c, _)| Cmd::Fingerprint(c)),
+        "run" => config_flag(&rest, false).map(|(c, _)| Cmd::Run(expand_tilde(c))),
+        "fingerprint" => config_flag(&rest, false).map(|(c, _)| Cmd::Fingerprint(expand_tilde(c))),
         "connection-code" => {
             let agents = rest.iter().any(|a| a == "--agents");
             let rest: Vec<OsString> = rest.into_iter().filter(|a| a != "--agents").collect();
-            config_flag(&rest, false).map(|(config, _)| Cmd::ConnectionCode { config, agents })
+            config_flag(&rest, false).map(|(config, _)| Cmd::ConnectionCode { config: expand_tilde(config), agents })
         }
         "help" | "--help" | "-h" if rest.is_empty() => Ok(Cmd::Help),
         "--version" | "-V" if rest.is_empty() => Ok(Cmd::Version),
@@ -286,5 +312,13 @@ mod tests {
             Ok(Cmd::SetPassword { stdin: true, .. })
         ));
         assert!(parse(&["frobnicate"]).is_err());
+    }
+
+    #[test]
+    fn expand_tilde_works() {
+        let p = expand_tilde(PathBuf::from("~/test/dir"));
+        assert!(!p.starts_with("~"));
+        let p2 = expand_tilde(PathBuf::from("relative/path"));
+        assert_eq!(p2, PathBuf::from("relative/path"));
     }
 }

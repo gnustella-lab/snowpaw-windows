@@ -4,7 +4,10 @@
 //! says hello, then answers render requests on stdin/stdout until stdin closes. It
 //! holds no secrets and talks to nothing but its parent.
 
+#![windows_subsystem = "windows"]
+
 mod avatar;
+
 mod highlight;
 mod math;
 mod sandbox;

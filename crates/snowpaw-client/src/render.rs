@@ -219,6 +219,8 @@ impl Worker {
             if let Some(parent) = path.parent() {
                 cmd.current_dir(parent);
             }
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000);
         } else {
             cmd.current_dir("/");
         }

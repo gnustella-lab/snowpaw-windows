@@ -577,6 +577,11 @@ pub fn main_entry() -> ExitCode {
     wire_plugins(&window, &tx);
     wire_jobs(&window, &tx);
     window.set_app_version(env!("CARGO_PKG_VERSION").into());
+    if cfg!(windows) {
+        window.set_guide_init_cmd("snowpaw-server init \"$env:APPDATA\\snowpaw\\data\"".into());
+        window.set_guide_password_cmd("snowpaw-server set-password --config \"$env:APPDATA\\snowpaw\\data\\server.toml\"".into());
+        window.set_guide_run_cmd("snowpaw-server run --config \"$env:APPDATA\\snowpaw\\data\\server.toml\"".into());
+    }
     {
         let tx = tx.clone();
         window.on_search(move |text| {

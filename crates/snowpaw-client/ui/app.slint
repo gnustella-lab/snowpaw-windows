@@ -572,6 +572,10 @@ export component AppWindow inherits Window {
     in property <string> token-code;
     callback close-token();
 
+    in property <string> guide-init-cmd: "snowpaw-server init ~/.local/share/snowpaw";
+    in property <string> guide-password-cmd: "snowpaw-server set-password --config ~/.local/share/snowpaw/server.toml";
+    in property <string> guide-run-cmd: "snowpaw-server run --config ~/.local/share/snowpaw/server.toml";
+
     // The effective theme (after the user's appearance choice), so the app can
     // color code and math to match.
     out property <bool> dark-mode: Theme.dark;
@@ -638,6 +642,9 @@ export component AppWindow inherits Window {
         server-label: root.server-label;
         login-error: root.login-error;
         login-busy: root.login-busy;
+        guide-init-cmd: root.guide-init-cmd;
+        guide-password-cmd: root.guide-password-cmd;
+        guide-run-cmd: root.guide-run-cmd;
         code-edited(t) => {
             root.code-edited(t);
         }
