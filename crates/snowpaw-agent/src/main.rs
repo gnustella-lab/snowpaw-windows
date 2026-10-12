@@ -56,6 +56,7 @@ fn start(config: &Path) -> Result<String, String> {
     let cfg = config::Config::load(config).map_err(|e| e.to_string())?;
     let dir = std::env::temp_dir();
     let uid = config::effective_uid(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    #[cfg(unix)]
     if uid == 0 {
         return Err("refusing to run as root; run as an unprivileged user".into());
     }

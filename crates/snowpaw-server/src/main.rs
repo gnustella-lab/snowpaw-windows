@@ -227,18 +227,25 @@ fn cmd_run(config: PathBuf) -> Result<(), String> {
 }
 
 async fn shutdown_signal() {
-    use tokio::signal::unix::{SignalKind, signal};
-    let term = async {
-        match signal(SignalKind::terminate()) {
-            Ok(mut s) => {
-                s.recv().await;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let term = async {
+            match signal(SignalKind::terminate()) {
+                Ok(mut s) => {
+                    s.recv().await;
+                }
+                Err(_) => std::future::pending().await,
             }
-            Err(_) => std::future::pending().await,
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            () = term => {}
         }
-    };
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        () = term => {}
+    }
+    #[cfg(windows)]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 

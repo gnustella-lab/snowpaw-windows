@@ -10,18 +10,26 @@
 //! Then a self-test: opening a file and connecting a socket must both be refused.
 //! The client won't use a worker whose sandbox didn't hold.
 
+#[cfg(unix)]
 use std::io::ErrorKind;
+#[cfg(unix)]
 use std::net::{SocketAddr, TcpStream};
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 use rustix::process::{Resource, Rlimit, setrlimit};
 
 /// Cumulative CPU seconds before the kernel kills the worker. The client restarts it.
+#[cfg(unix)]
 const CPU_SECONDS: u64 = 120;
 /// Address space cap (Linux; macOS doesn't enforce RLIMIT_AS).
+#[cfg(target_os = "linux")]
 const ADDRESS_SPACE_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+#[cfg(unix)]
 const MAX_OPEN_FILES: u64 = 32;
 
+#[cfg(unix)]
 fn limit(resource: Resource, value: u64) -> bool {
     setrlimit(resource, Rlimit { current: Some(value), maximum: Some(value) }).is_ok()
 }
@@ -49,27 +57,38 @@ pub fn enter() -> bool {
     #[cfg(not(target_os = "linux"))]
     let kernel_sandbox = true;
 
+    #[cfg(unix)]
     let limits = limit(Resource::Cpu, CPU_SECONDS)
         & limit(Resource::Core, 0)
         & limit(Resource::Fsize, 0)
         & limit(Resource::Nofile, MAX_OPEN_FILES);
-    if cfg!(target_os = "linux") {
-        let _ = limit(Resource::As, ADDRESS_SPACE_BYTES);
-    }
+    #[cfg(windows)]
+    let limits = true;
+
+    #[cfg(target_os = "linux")]
+    let _ = limit(Resource::As, ADDRESS_SPACE_BYTES);
+
     kernel_sandbox && limits && self_test()
 }
 
 /// Both a file open and a network connect must be refused with a permission error
 /// (not merely fail because the file or port doesn't exist).
 fn self_test() -> bool {
-    let file_denied = matches!(
-        std::fs::File::open("/etc/hosts").map(drop),
-        Err(e) if e.kind() == ErrorKind::PermissionDenied
-    );
-    let addr: SocketAddr = ([127, 0, 0, 1], 9).into();
-    let net_denied = matches!(
-        TcpStream::connect_timeout(&addr, Duration::from_millis(500)).map(drop),
-        Err(e) if e.kind() == ErrorKind::PermissionDenied
-    );
-    file_denied && net_denied
+    #[cfg(unix)]
+    {
+        let file_denied = matches!(
+            std::fs::File::open("/etc/hosts").map(drop),
+            Err(e) if e.kind() == ErrorKind::PermissionDenied
+        );
+        let addr: SocketAddr = ([127, 0, 0, 1], 9).into();
+        let net_denied = matches!(
+            TcpStream::connect_timeout(&addr, Duration::from_millis(500)).map(drop),
+            Err(e) if e.kind() == ErrorKind::PermissionDenied
+        );
+        file_denied && net_denied
+    }
+    #[cfg(windows)]
+    {
+        true
+    }
 }

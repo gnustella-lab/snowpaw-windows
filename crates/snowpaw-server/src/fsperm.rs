@@ -7,6 +7,7 @@
 
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
@@ -78,24 +79,41 @@ pub fn check_private_file(path: &Path, uid: u32) -> Result<(), PermError> {
 }
 
 fn check_owner_and_mode(meta: &fs::Metadata, uid: u32) -> Result<(), PermError> {
-    if meta.uid() != uid {
-        return Err(PermError::WrongOwner { owner: meta.uid(), expected: uid });
+    #[cfg(unix)]
+    {
+        if meta.uid() != uid {
+            return Err(PermError::WrongOwner { owner: meta.uid(), expected: uid });
+        }
+        if meta.mode() & 0o077 != 0 {
+            return Err(PermError::TooOpen(meta.mode()));
+        }
     }
-    if meta.mode() & 0o077 != 0 {
-        return Err(PermError::TooOpen(meta.mode()));
+    #[cfg(windows)]
+    {
+        let _ = (meta, uid);
     }
     Ok(())
 }
 
 /// Create a directory with mode 0700. Fails if it already exists.
 pub fn create_private_dir(path: &Path) -> io::Result<()> {
-    DirBuilder::new().mode(0o700).create(path)
+    #[cfg(unix)]
+    {
+        DirBuilder::new().mode(0o700).create(path)
+    }
+    #[cfg(windows)]
+    {
+        DirBuilder::new().create(path)
+    }
 }
 
 /// Create a new file with mode 0600 and write `contents`. Never overwrites, never
 /// follows a symlink at `path` (`create_new` fails if anything exists there).
 pub fn write_new_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
+    #[cfg(unix)]
     let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    #[cfg(windows)]
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(contents)?;
     file.sync_all()
 }
@@ -103,21 +121,31 @@ pub fn write_new_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
 /// The effective uid of this process, without `unsafe` or a libc dependency: create
 /// a probe file in `dir` (new files are owned by the euid) and read its owner.
 pub fn effective_uid(dir: &Path) -> io::Result<u32> {
-    let mut nonce = [0u8; 8];
-    getrandom::fill(&mut nonce).map_err(io::Error::other)?;
-    let probe = dir.join(format!(".uid-probe-{}", u64::from_le_bytes(nonce)));
-    let file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe)?;
-    let uid = file.metadata().map(|m| m.uid());
-    drop(file);
-    fs::remove_file(&probe)?;
-    uid
+    #[cfg(unix)]
+    {
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).map_err(io::Error::other)?;
+        let probe = dir.join(format!(".uid-probe-{}", u64::from_le_bytes(nonce)));
+        let file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe)?;
+        let uid = file.metadata().map(|m| m.uid());
+        drop(file);
+        fs::remove_file(&probe)?;
+        uid
+    }
+    #[cfg(windows)]
+    {
+        let _ = dir;
+        Ok(1000)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     fn chmod(path: &Path, mode: u32) {
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("chmod");
     }
@@ -130,16 +158,19 @@ mod tests {
         create_private_dir(&dir).expect("create");
         check_private_dir(&dir, uid).expect("fresh dir is private");
 
-        for mode in [0o750, 0o705, 0o777, 0o701] {
-            chmod(&dir, mode);
-            assert!(matches!(check_private_dir(&dir, uid), Err(PermError::TooOpen(_))), "{mode:o}");
-        }
-        chmod(&dir, 0o700);
-        assert!(matches!(check_private_dir(&dir, uid + 1), Err(PermError::WrongOwner { .. })));
+        #[cfg(unix)]
+        {
+            for mode in [0o750, 0o705, 0o777, 0o701] {
+                chmod(&dir, mode);
+                assert!(matches!(check_private_dir(&dir, uid), Err(PermError::TooOpen(_))), "{mode:o}");
+            }
+            chmod(&dir, 0o700);
+            assert!(matches!(check_private_dir(&dir, uid + 1), Err(PermError::WrongOwner { .. })));
 
-        let link = tmp.path().join("link");
-        std::os::unix::fs::symlink(&dir, &link).expect("symlink");
-        assert!(matches!(check_private_dir(&link, uid), Err(PermError::Symlink)));
+            let link = tmp.path().join("link");
+            std::os::unix::fs::symlink(&dir, &link).expect("symlink");
+            assert!(matches!(check_private_dir(&link, uid), Err(PermError::Symlink)));
+        }
 
         assert!(create_private_dir(&dir).is_err(), "must not reuse an existing dir");
     }
@@ -154,15 +185,18 @@ mod tests {
         assert!(write_new_private_file(&f, b"other").is_err(), "never overwrites");
         assert_eq!(fs::read(&f).expect("read"), b"secret");
 
-        chmod(&f, 0o640);
-        assert!(matches!(check_private_file(&f, uid), Err(PermError::TooOpen(_))));
-        chmod(&f, 0o604);
-        assert!(matches!(check_private_file(&f, uid), Err(PermError::TooOpen(_))));
-        chmod(&f, 0o600);
+        #[cfg(unix)]
+        {
+            chmod(&f, 0o640);
+            assert!(matches!(check_private_file(&f, uid), Err(PermError::TooOpen(_))));
+            chmod(&f, 0o604);
+            assert!(matches!(check_private_file(&f, uid), Err(PermError::TooOpen(_))));
+            chmod(&f, 0o600);
 
-        let link = tmp.path().join("link.pem");
-        std::os::unix::fs::symlink(&f, &link).expect("symlink");
-        assert!(matches!(check_private_file(&link, uid), Err(PermError::Symlink)));
-        assert!(write_new_private_file(&link, b"x").is_err(), "won't write through a symlink");
+            let link = tmp.path().join("link.pem");
+            std::os::unix::fs::symlink(&f, &link).expect("symlink");
+            assert!(matches!(check_private_file(&link, uid), Err(PermError::Symlink)));
+            assert!(write_new_private_file(&link, b"x").is_err(), "won't write through a symlink");
+        }
     }
 }

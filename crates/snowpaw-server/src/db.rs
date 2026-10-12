@@ -2159,16 +2159,23 @@ mod tests {
 
     #[test]
     fn new_db_file_is_private_and_reopens() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().expect("tmp");
         let uid = fsperm::effective_uid(tmp.path()).expect("uid");
         let path = tmp.path().join("t.db");
         drop(Db::open(&path, uid).expect("open"));
-        let mode = std::fs::metadata(&path).expect("meta").permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&path).expect("meta").permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         drop(Db::open(&path, uid).expect("reopen runs no migrations twice"));
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
-        assert!(matches!(Db::open(&path, uid), Err(DbError::Perm(_))));
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+            assert!(matches!(Db::open(&path, uid), Err(DbError::Perm(_))));
+        }
     }
 
     #[test]
@@ -2182,6 +2189,7 @@ mod tests {
         assert!(matches!(Db::open(&path, uid), Err(DbError::TooNew { found: 99, .. })));
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_symlinked_db() {
         let tmp = tempfile::tempdir().expect("tmp");

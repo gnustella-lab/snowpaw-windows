@@ -150,6 +150,7 @@ mod tests {
         assert!(generate(&c, &k).is_err(), "never overwrites an existing key");
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_readable_key() {
         use std::os::unix::fs::PermissionsExt;

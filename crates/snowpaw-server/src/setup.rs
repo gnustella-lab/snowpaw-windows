@@ -64,9 +64,16 @@ pub fn init(data_dir: &Path, clock: &dyn Clock) -> Result<InitReport, SetupError
     let as_str =
         data_dir.to_str().ok_or_else(|| fail(format!("{shown}: path must be valid UTF-8")))?;
     // The path is embedded in a TOML string; keep it to characters that need no escaping.
+    #[cfg(unix)]
     if as_str.chars().any(|c| c == '"' || c == '\\' || c.is_control()) {
         return Err(fail(format!(
             "{shown}: path must not contain quotes, backslashes, or control characters"
+        )));
+    }
+    #[cfg(not(unix))]
+    if as_str.chars().any(|c| c == '"' || c.is_control()) {
+        return Err(fail(format!(
+            "{shown}: path must not contain quotes or control characters"
         )));
     }
 
@@ -128,7 +135,8 @@ fn render_config(data_dir: &str) -> Result<String, SetupError> {
     if config::EXAMPLE_CONFIG.matches(placeholder).count() != 1 {
         return Err(fail("example config is missing the data_dir placeholder"));
     }
-    Ok(config::EXAMPLE_CONFIG.replacen(placeholder, &format!("data_dir = \"{data_dir}\""), 1))
+    let escaped = data_dir.replace('\\', "\\\\");
+    Ok(config::EXAMPLE_CONFIG.replacen(placeholder, &format!("data_dir = \"{escaped}\""), 1))
 }
 
 /// Set (or change) the password. Revokes every existing session and clears any
@@ -156,15 +164,20 @@ mod tests {
 
     #[test]
     fn rendered_config_is_valid() {
-        let text = render_config("/srv/snowpaw").expect("render");
+        let path = if cfg!(windows) { "C:\\srv\\snowpaw" } else { "/srv/snowpaw" };
+        let text = render_config(path).expect("render");
         let cfg = Config::parse(&text).expect("valid");
-        assert_eq!(cfg.server.data_dir, PathBuf::from("/srv/snowpaw"));
+        assert_eq!(cfg.server.data_dir, PathBuf::from(path));
     }
 
     #[test]
     fn init_rejects_unsafe_paths() {
         let clock = crate::clock::SystemClock;
-        for p in ["relative", "/tmp/../etc/x", "/tmp/a\"b", "/tmp/a\\b", "/tmp/a\nb"] {
+        #[allow(unused_mut)]
+        let mut bad = vec!["relative", "/tmp/../etc/x", "/tmp/a\"b", "/tmp/a\nb"];
+        #[cfg(unix)]
+        bad.push("/tmp/a\\b");
+        for p in bad {
             assert!(init(Path::new(p), &clock).is_err(), "{p:?}");
         }
     }

@@ -27,9 +27,9 @@ async fn start() -> TestServer {
     let tmp = tempfile::tempdir().unwrap();
     let data = tmp.path().join("data");
     let report = setup::init(&data, &SystemClock).unwrap();
+    let data_str = data.to_string_lossy().replace('\\', "/");
     let cfg = Config::parse(&format!(
-        "[server]\nlisten = \"127.0.0.1:0\"\ndata_dir = \"{}\"\n",
-        data.display()
+        "[server]\nlisten = \"127.0.0.1:0\"\ndata_dir = \"{data_str}\"\n"
     ))
     .unwrap();
     setup::set_password(&cfg, &SecretString::new(PASSWORD.into()), &SystemClock).unwrap();

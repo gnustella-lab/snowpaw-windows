@@ -8,6 +8,7 @@
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{Read, Write};
 use std::net::IpAddr;
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -116,9 +117,16 @@ pub fn format_fingerprint(pin: &[u8; 32]) -> String {
     s
 }
 
-/// Where settings live by default: `~/Library/Application Support/snowpaw` on macOS,
+/// Where settings live by default: `%APPDATA%\snowpaw` on Windows,
+/// `~/Library/Application Support/snowpaw` on macOS,
 /// `$XDG_CONFIG_HOME/snowpaw` (or `~/.config/snowpaw`) on Linux.
 pub fn default_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join(r"AppData\Roaming")))
+            .map(|p| p.join("snowpaw"));
+    }
     let home = std::env::var_os("HOME").map(PathBuf::from).filter(|p| p.is_absolute());
     if cfg!(target_os = "macos") {
         return home.map(|h| h.join("Library/Application Support/snowpaw"));
@@ -137,6 +145,7 @@ fn ensure_dir(dir: &Path) -> Result<(), String> {
             if !meta.is_dir() {
                 return Err(format!("{} is not a directory", dir.display()));
             }
+            #[cfg(unix)]
             if meta.mode() & 0o022 != 0 {
                 return Err(format!(
                     "{} is writable by other users; run: chmod go-w \"{}\"",
@@ -146,11 +155,13 @@ fn ensure_dir(dir: &Path) -> Result<(), String> {
             }
             Ok(())
         }
-        Err(_) => DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-            .map_err(|e| format!("creating {}: {e}", dir.display())),
+        Err(_) => {
+            let mut builder = DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            builder.mode(0o700);
+            builder.create(dir).map_err(|e| format!("creating {}: {e}", dir.display()))
+        }
     }
 }
 
@@ -158,15 +169,22 @@ fn ensure_dir(dir: &Path) -> Result<(), String> {
 /// it (the owner of a file we just created); `None` if it can't be determined, in
 /// which case the owner check is skipped rather than every settings file refused.
 fn effective_uid() -> Option<u32> {
-    let dir = std::env::temp_dir();
-    let mut nonce = [0u8; 8];
-    getrandom::fill(&mut nonce).ok()?;
-    let probe = dir.join(format!(".snowpaw-uid-{}", u64::from_le_bytes(nonce)));
-    let file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe).ok()?;
-    let uid = file.metadata().ok().map(|m| m.uid());
-    drop(file);
-    let _ = fs::remove_file(&probe);
-    uid
+    #[cfg(unix)]
+    {
+        let dir = std::env::temp_dir();
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).ok()?;
+        let probe = dir.join(format!(".snowpaw-uid-{}", u64::from_le_bytes(nonce)));
+        let file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe).ok()?;
+        let uid = file.metadata().ok().map(|m| m.uid());
+        drop(file);
+        let _ = fs::remove_file(&probe);
+        uid
+    }
+    #[cfg(windows)]
+    {
+        Some(0)
+    }
 }
 
 /// The settings folder must not be writable by anyone else: whoever can change it
@@ -177,6 +195,7 @@ fn check_dir_at_load(dir: &Path) -> Result<(), String> {
             if !meta.is_dir() {
                 return Err(format!("{} is not a directory", dir.display()));
             }
+            #[cfg(unix)]
             if meta.mode() & 0o022 != 0 {
                 return Err(format!(
                     "{} is writable by other users; run: chmod go-w \"{}\"",
@@ -216,21 +235,28 @@ fn read_private_as(path: &Path, euid: Option<u32>) -> Result<Option<String>, Str
     let mut file =
         OpenOptions::new().read(true).open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let meta = file.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.dev() != link_meta.dev() || meta.ino() != link_meta.ino() {
-        return Err(format!("{} changed while being opened", path.display()));
-    }
-    if meta.mode() & 0o022 != 0 {
-        return Err(format!(
-            "{} is writable by other users, so it can't be trusted; run: chmod 600 \"{}\"",
-            path.display(),
-            path.display()
-        ));
-    }
-    if let Some(uid) = euid
-        && meta.uid() != uid
-        && meta.uid() != 0
+    #[cfg(unix)]
     {
-        return Err(format!("{} is owned by another user, so it can't be trusted", path.display()));
+        if meta.dev() != link_meta.dev() || meta.ino() != link_meta.ino() {
+            return Err(format!("{} changed while being opened", path.display()));
+        }
+        if meta.mode() & 0o022 != 0 {
+            return Err(format!(
+                "{} is writable by other users, so it can't be trusted; run: chmod 600 \"{}\"",
+                path.display(),
+                path.display()
+            ));
+        }
+        if let Some(uid) = euid
+            && meta.uid() != uid
+            && meta.uid() != 0
+        {
+            return Err(format!("{} is owned by another user, so it can't be trusted", path.display()));
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = (meta, euid);
     }
     let mut text = String::new();
     (&mut file)
@@ -250,12 +276,11 @@ fn write_private(dir: &Path, name: &str, contents: &[u8]) -> Result<(), String> 
     getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
     let tmp = dir.join(format!(".{name}.{}", u64::from_le_bytes(nonce)));
     let result = (|| {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| format!("{}: {e}", tmp.display()))?;
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        opts.mode(0o600);
+        let mut f = opts.open(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
         f.write_all(contents).map_err(|e| e.to_string())?;
         f.sync_all().map_err(|e| e.to_string())?;
         fs::rename(&tmp, dir.join(name)).map_err(|e| e.to_string())
@@ -396,6 +421,7 @@ pub fn forget_device_token(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     const FP: &str = "sha256:8b77c1a7f5b9765267ca4547028e789427630cae167727ecc54deff732393cf9";
@@ -453,11 +479,15 @@ mod tests {
         let cfg = ClientConfig::new("127.0.0.1:7443", FP).expect("valid");
         save(&dir, &cfg).expect("save");
         assert_eq!(load(&dir), Ok(Some(cfg)));
-        let mode = |p: &Path| fs::metadata(p).expect("meta").permissions().mode() & 0o777;
-        assert_eq!(mode(&dir), 0o700);
-        assert_eq!(mode(&dir.join(CONFIG_FILE)), 0o600);
+        #[cfg(unix)]
+        {
+            let mode = |p: &Path| fs::metadata(p).expect("meta").permissions().mode() & 0o777;
+            assert_eq!(mode(&dir), 0o700);
+            assert_eq!(mode(&dir.join(CONFIG_FILE)), 0o600);
+        }
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_settings_others_can_change() {
         let tmp = tempfile::tempdir().expect("tmp");
@@ -476,6 +506,7 @@ mod tests {
         assert!(load(&dir).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_settings_someone_else_owns() {
         // Mode bits alone don't make a file ours: whoever planted it chose them.
@@ -496,6 +527,7 @@ mod tests {
         assert!(load(&dir).is_ok(), "the real uid owns it");
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_a_settings_dir_others_can_write() {
         let tmp = tempfile::tempdir().expect("tmp");

@@ -162,7 +162,8 @@ impl RenderService {
 /// The worker binary next to our own executable.
 pub fn default_worker_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let path = exe.with_file_name("snowpaw-render");
+    let name = if cfg!(windows) { "snowpaw-render.exe" } else { "snowpaw-render" };
+    let path = exe.with_file_name(name);
     path.is_file().then_some(path)
 }
 
@@ -207,11 +208,20 @@ impl Worker {
             Command::new(&path)
         };
         cmd.env_clear()
-            .current_dir("/")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
+        if cfg!(windows) {
+            if let Some(sysroot) = std::env::var_os("SystemRoot") {
+                cmd.env("SystemRoot", sysroot);
+            }
+            if let Some(parent) = path.parent() {
+                cmd.current_dir(parent);
+            }
+        } else {
+            cmd.current_dir("/");
+        }
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let mut stdout = child.stdout.take().ok_or("no stdout")?;

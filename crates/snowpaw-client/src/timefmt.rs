@@ -43,6 +43,7 @@ impl TimeFmt {
     }
 
     pub fn local() -> Self {
+        #[cfg(unix)]
         let offset = std::process::Command::new("/bin/date")
             .arg("+%z")
             .env_clear()
@@ -51,6 +52,8 @@ impl TimeFmt {
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .and_then(|s| parse_offset(s.trim()));
+        #[cfg(windows)]
+        let offset = windows_utc_offset_ms();
         Self { offset_ms: offset.unwrap_or(0) }
     }
 
@@ -113,6 +116,7 @@ fn clock(local_ms: i64) -> String {
 }
 
 /// "+0100" / "-0530" -> milliseconds.
+#[cfg(any(unix, test))]
 fn parse_offset(s: &str) -> Option<i64> {
     let (sign, rest) = match s.as_bytes().first()? {
         b'+' => (1, &s[1..]),
@@ -141,6 +145,24 @@ fn civil(days: i64) -> (i64, i64, i64) {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
+#[cfg(windows)]
+fn windows_utc_offset_ms() -> Option<i64> {
+    let output = std::process::Command::new("reg")
+        .args(["query", r"HKLM\System\CurrentControlSet\Control\TimeZoneInformation", "/v", "ActiveTimeBias"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8(output.stdout).ok()?;
+    for word in text.split_whitespace() {
+        if let Some(hex) = word.strip_prefix("0x") {
+            if let Ok(raw) = u32::from_str_radix(hex, 16) {
+                let bias_minutes = raw as i32;
+                return Some(-i64::from(bias_minutes) * 60 * 1000);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

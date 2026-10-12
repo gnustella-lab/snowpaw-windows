@@ -18,7 +18,7 @@ Security is the first priority. See [docs/threat-model.md](docs/threat-model.md)
 - WebAssembly plugins;
 - packaging.
 
-Linux and macOS only.
+Supported on Linux, macOS, and native Windows 10/11 (x64).
 
 ## How it fits together
 
@@ -49,6 +49,17 @@ Requires Rust (the version is pinned in `rust-toolchain.toml`).
 
 ```bash
 cargo build --release --locked
+```
+
+On Windows (PowerShell):
+```powershell
+# Automated build script:
+.\build.ps1
+
+# Or run components directly:
+.\run.ps1 -Component init
+.\run.ps1 -Component server
+.\run.ps1 -Component client
 ```
 
 ### 1. The server

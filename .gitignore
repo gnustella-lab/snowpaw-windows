@@ -1,4 +1,5 @@
 /target/
+/dist/
 
 # Never commit real configs, data dirs, keys, or databases. Only config/*.example.toml is tracked.
 *.db

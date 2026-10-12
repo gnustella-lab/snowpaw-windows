@@ -7,6 +7,7 @@
 mod common;
 
 use std::collections::VecDeque;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -243,9 +244,11 @@ async fn a_granted_plugin_answers_and_an_ungranted_fetch_is_refused() {
     let tmp = tempfile::tempdir().unwrap();
     let token_file = tmp.path().join("token");
     std::fs::write(&token_file, agent_token.expose()).unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let token_file_str = token_file.to_string_lossy().replace('\\', "/");
     let cfg =
-        Config::parse(&format!("server = \"{code}\"\ntoken_file = \"{}\"\n", token_file.display()))
+        Config::parse(&format!("server = \"{code}\"\ntoken_file = \"{token_file_str}\"\n"))
             .unwrap();
     let uid = snowpaw_agent::config::effective_uid(tmp.path()).unwrap();
     let rt = tokio::spawn(runtime::run(

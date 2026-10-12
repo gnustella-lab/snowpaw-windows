@@ -153,9 +153,9 @@ impl TestServer {
     }
 
     pub fn config(data_dir: &std::path::Path, extra: &str) -> Config {
+        let dir_str = data_dir.to_string_lossy().replace('\\', "/");
         Config::parse(&format!(
-            "[server]\nlisten = \"127.0.0.1:0\"\ndata_dir = \"{}\"\n{extra}",
-            data_dir.display()
+            "[server]\nlisten = \"127.0.0.1:0\"\ndata_dir = \"{dir_str}\"\n{extra}"
         ))
         .unwrap()
     }

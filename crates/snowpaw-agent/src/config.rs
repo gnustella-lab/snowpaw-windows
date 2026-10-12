@@ -8,6 +8,7 @@
 //! `--secret snowpaw-agent-token,target=/run/secrets/token,uid=<uid>,mode=0400`.
 
 use std::io::Read;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
@@ -78,6 +79,7 @@ impl Config {
         if !meta.is_file() {
             return Err(err(format!("{shown}: not a regular file")));
         }
+        #[cfg(unix)]
         if meta.mode() & 0o022 != 0 {
             return Err(err(format!("{shown}: must not be writable by group/other")));
         }
@@ -110,15 +112,19 @@ pub fn load_token(path: &Path, euid: u32) -> Result<SecretString, ConfigError> {
     if !meta.is_file() {
         return Err(err(format!("{shown}: not a regular file")));
     }
+    #[cfg(unix)]
     if meta.mode() & 0o077 != 0 {
         return Err(err(format!(
             "{shown}: has mode {:04o}; it must be readable by this user only (chmod 600)",
             meta.mode() & 0o7777
         )));
     }
+    #[cfg(unix)]
     if meta.uid() != euid {
         return Err(err(format!("{shown}: must be owned by uid {euid}")));
     }
+    #[cfg(not(unix))]
+    let _ = euid;
     let mut text = Zeroizing::new(String::new());
     file.take(256).read_to_string(&mut text).map_err(|e| err(format!("{shown}: {e}")))?;
     let token = text.trim();
@@ -133,37 +139,49 @@ pub fn load_token(path: &Path, euid: u32) -> Result<SecretString, ConfigError> {
 
 /// Our effective uid, learned from a file we create (no unsafe, no libc).
 pub fn effective_uid(dir: &Path) -> std::io::Result<u32> {
-    let mut nonce = [0u8; 8];
-    getrandom::fill(&mut nonce).map_err(std::io::Error::other)?;
-    let probe = dir.join(format!(".snowpaw-agent-uid-{}", u64::from_le_bytes(nonce)));
-    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(&probe)?;
-    let uid = file.metadata().map(|m| m.uid());
-    let _ = std::fs::remove_file(&probe);
-    uid
+    #[cfg(unix)]
+    {
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).map_err(std::io::Error::other)?;
+        let probe = dir.join(format!(".snowpaw-agent-uid-{}", u64::from_le_bytes(nonce)));
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(&probe)?;
+        let uid = file.metadata().map(|m| m.uid());
+        let _ = std::fs::remove_file(&probe);
+        uid
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Ok(1000)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     const CODE: &str = "snowpaw://127.0.0.1:7443#sha256:3f9a1c0000000000000000000000000000000000000000000000000000007be2";
 
     #[test]
     fn config() {
-        let c = Config::parse(&format!("server = \"{CODE}\"\ntoken_file = \"/run/secrets/t\"\n"))
+        let abs = if cfg!(windows) { "C:/run/secrets/t" } else { "/run/secrets/t" };
+        let bad_abs = if cfg!(windows) { "C:/t" } else { "/t" };
+        let c = Config::parse(&format!("server = \"{CODE}\"\ntoken_file = \"{abs}\"\n"))
             .expect("ok");
         assert_eq!(c.host_port(), ("127.0.0.1".into(), 7443));
         assert_eq!(c.pin[0], 0x3f);
         for bad in [
-            "server = \"127.0.0.1:7443\"\ntoken_file = \"/t\"\n".to_owned(),
+            format!("server = \"127.0.0.1:7443\"\ntoken_file = \"{bad_abs}\"\n"),
             format!("server = \"{CODE}\"\ntoken_file = \"relative\"\n"),
-            format!("server = \"{CODE}\"\ntoken_file = \"/t\"\ntoken = \"spw_a_x\"\n"),
+            format!("server = \"{CODE}\"\ntoken_file = \"{bad_abs}\"\ntoken = \"spw_a_x\"\n"),
         ] {
             assert!(Config::parse(&bad).is_err(), "{bad}");
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn token_file_rules() {
         let tmp = tempfile::tempdir().expect("tmp");
@@ -179,6 +197,19 @@ mod tests {
         assert!(load_token(&path, uid).is_ok());
         assert!(load_token(&path, uid + 1).is_err(), "someone else's file");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        std::fs::write(&path, "spw_s_session_token").expect("write");
+        assert!(load_token(&path, uid).is_err(), "not an agent token");
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn token_file_format() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let uid = effective_uid(tmp.path()).expect("uid");
+        let path = tmp.path().join("token");
+        let token = format!("spw_a_{}", "ab".repeat(32));
+        std::fs::write(&path, format!("{token}\n")).expect("write");
+        assert_eq!(load_token(&path, uid).expect("ok").expose(), token);
         std::fs::write(&path, "spw_s_session_token").expect("write");
         assert!(load_token(&path, uid).is_err(), "not an agent token");
     }

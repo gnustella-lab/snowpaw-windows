@@ -2,6 +2,7 @@
 
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
@@ -221,6 +222,7 @@ impl Config {
         if !meta.is_file() {
             return Err(err(format!("{shown}: is not a regular file")));
         }
+        #[cfg(unix)]
         if meta.mode() & 0o022 != 0 {
             return Err(err(format!(
                 "{shown}: has mode {:04o}; must not be writable by group/other (chmod go-w)",
@@ -235,7 +237,14 @@ impl Config {
             return Err(err(format!("{shown}: larger than {MAX_CONFIG_BYTES} bytes")));
         }
         let mut cfg = Self::parse(&text).map_err(|e| err(format!("{shown}: {e}")))?;
-        cfg.source_owner = Some(meta.uid());
+        #[cfg(unix)]
+        {
+            cfg.source_owner = Some(meta.uid());
+        }
+        #[cfg(windows)]
+        {
+            cfg.source_owner = Some(1000);
+        }
         Ok(cfg)
     }
 
@@ -378,7 +387,12 @@ fn range(name: &str, value: u64, min: u64, max: u64) -> Result<(), ConfigError> 
 }
 
 fn validate_abs_path(name: &str, path: &Path) -> Result<(), ConfigError> {
+    #[cfg(unix)]
     if !path.is_absolute() {
+        return Err(err(format!("{name} must be an absolute path")));
+    }
+    #[cfg(windows)]
+    if !path.is_absolute() && !path.has_root() {
         return Err(err(format!("{name} must be an absolute path")));
     }
     if path.components().any(|c| matches!(c, Component::ParentDir)) {

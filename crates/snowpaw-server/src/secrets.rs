@@ -195,6 +195,7 @@ mod tests {
 
     #[test]
     fn key_file_rules() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().expect("tmp");
         let path = tmp.path().join("secrets.key");
@@ -202,8 +203,11 @@ mod tests {
         Secrets::create(&path).expect("create");
         assert!(Secrets::create(&path).is_err(), "never overwrites");
         assert!(Secrets::load(&path, uid).is_ok());
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
-        assert!(Secrets::load(&path, uid).is_err(), "readable by others");
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+            assert!(Secrets::load(&path, uid).is_err(), "readable by others");
+        }
         let short = tmp.path().join("short.key");
         fsperm::write_new_private_file(&short, &[0u8; 16]).expect("write");
         assert!(Secrets::load(&short, uid).is_err(), "wrong length");

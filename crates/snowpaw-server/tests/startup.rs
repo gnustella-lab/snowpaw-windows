@@ -3,7 +3,9 @@
 
 mod common;
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,10 +16,12 @@ use snowpaw_server::config::Config;
 use snowpaw_server::server::Server;
 use snowpaw_server::setup;
 
+#[cfg(unix)]
 fn chmod(path: &Path, mode: u32) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -30,6 +34,7 @@ fn fresh() -> (tempfile::TempDir, std::path::PathBuf, Config) {
     (tmp, dir, cfg)
 }
 
+#[cfg(unix)]
 fn set_pw(cfg: &Config) {
     setup::set_password(cfg, &SecretString::new(common::PASSWORD.into()), &SystemClock).unwrap();
 }
@@ -41,9 +46,12 @@ async fn bind_err(cfg: Config) -> String {
 #[tokio::test]
 async fn init_creates_private_files() {
     let (_tmp, dir, _) = fresh();
-    assert_eq!(mode(&dir), 0o700);
-    for f in ["server.toml", "snowpaw.db", "tls-cert.pem", "tls-key.pem"] {
-        assert_eq!(mode(&dir.join(f)), 0o600, "{f}");
+    #[cfg(unix)]
+    {
+        assert_eq!(mode(&dir), 0o700);
+        for f in ["server.toml", "snowpaw.db", "tls-cert.pem", "tls-key.pem"] {
+            assert_eq!(mode(&dir.join(f)), 0o600, "{f}");
+        }
     }
     let cfg = Config::load(&dir.join("server.toml")).unwrap();
     assert_eq!(cfg.server.data_dir, dir);
@@ -57,6 +65,7 @@ fn init_refuses_an_existing_non_empty_dir() {
     assert!(err.contains("not empty"), "{err}");
 }
 
+#[cfg(unix)]
 #[test]
 fn init_refuses_an_existing_empty_dir_that_is_not_private() {
     let tmp = tempfile::tempdir().unwrap();
@@ -81,6 +90,7 @@ async fn refuses_to_start_on_an_uninitialized_dir() {
     assert!(bind_err(cfg).await.contains("init"));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn refuses_loose_data_dir_permissions() {
     let (_tmp, dir, cfg) = fresh();
@@ -94,6 +104,7 @@ async fn refuses_loose_data_dir_permissions() {
     Server::bind(cfg, Arc::new(SystemClock)).await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn refuses_readable_secrets() {
     let (_tmp, dir, cfg) = fresh();
@@ -107,6 +118,7 @@ async fn refuses_readable_secrets() {
     Server::bind(cfg, Arc::new(SystemClock)).await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn refuses_a_symlinked_key_or_data_dir() {
     let (tmp, dir, cfg) = fresh();
@@ -126,6 +138,7 @@ async fn refuses_a_symlinked_key_or_data_dir() {
     assert!(bind_err(linked).await.contains("symlink"));
 }
 
+#[cfg(unix)]
 #[test]
 fn refuses_a_writable_config_file() {
     let (_tmp, dir, _) = fresh();

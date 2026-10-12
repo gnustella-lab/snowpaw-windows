@@ -7,6 +7,7 @@
 mod common;
 
 use std::collections::VecDeque;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -172,10 +173,12 @@ async fn quiz_round_trip_and_resume_after_restart() {
     let tmp = tempfile::tempdir().unwrap();
     let token_file = tmp.path().join("token");
     std::fs::write(&token_file, agent_token.expose()).unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o600)).unwrap();
     let code = setup_code::encode(&s.addr.to_string(), &s.fingerprint);
+    let token_file_str = token_file.to_string_lossy().replace('\\', "/");
     let cfg =
-        Config::parse(&format!("server = \"{code}\"\ntoken_file = \"{}\"\n", token_file.display()))
+        Config::parse(&format!("server = \"{code}\"\ntoken_file = \"{token_file_str}\"\n"))
             .unwrap();
     let uid = snowpaw_agent::config::effective_uid(tmp.path()).unwrap();
     let loaded = snowpaw_agent::config::load_token(&cfg.token_file, uid).unwrap();
@@ -315,9 +318,11 @@ async fn scheduled_jobs_run_and_proposals_wait_for_the_user() {
     let tmp = tempfile::tempdir().unwrap();
     let token_file = tmp.path().join("token");
     std::fs::write(&token_file, agent_token.expose()).unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let token_file_str = token_file.to_string_lossy().replace('\\', "/");
     let cfg =
-        Config::parse(&format!("server = \"{code}\"\ntoken_file = \"{}\"\n", token_file.display()))
+        Config::parse(&format!("server = \"{code}\"\ntoken_file = \"{token_file_str}\"\n"))
             .unwrap();
     let uid = snowpaw_agent::config::effective_uid(tmp.path()).unwrap();
     let rt = tokio::spawn(runtime::run(
