@@ -64,34 +64,48 @@ On Windows (PowerShell):
 
 ### 1. The server
 
-```bash
-./target/release/snowpaw-server init ~/.local/share/snowpaw
+**On Windows (PowerShell):**
+```powershell
+# Using the helper script:
+.\run.ps1 -Component init
+.\run.ps1 -Component server
+
+# Or directly with the native binary:
+.\target\release\snowpaw-server.exe init "$env:APPDATA\snowpaw\data"
+.\target\release\snowpaw-server.exe set-password --config "$env:APPDATA\snowpaw\data\server.toml"
+.\target\release\snowpaw-server.exe run --config "$env:APPDATA\snowpaw\data\server.toml"
 ```
 
-`init` creates the data directory (mode 0700) with a config file, the database, a
+**On Linux / macOS:**
+```bash
+./target/release/snowpaw-server init ~/.local/share/snowpaw
+./target/release/snowpaw-server set-password --config ~/.local/share/snowpaw/server.toml
+./target/release/snowpaw-server run --config ~/.local/share/snowpaw/server.toml
+```
+
+`init` creates the data directory (mode 0700 on Unix, private ACL on Windows) with a config file, the database, a
 self-signed TLS certificate and the key that seals secrets. It prints a
 **connection code** (`snowpaw://127.0.0.1:7443#sha256:…`), which tells the app where
 the server is and which certificate to trust.
-
-```bash
-./target/release/snowpaw-server set-password --config ~/.local/share/snowpaw/server.toml
-```
-
-```bash
-./target/release/snowpaw-server run --config ~/.local/share/snowpaw/server.toml
-```
 
 The server listens on `127.0.0.1:7443` only by default. Every setting, with its
 default and allowed range, is in [config/server.example.toml](config/server.example.toml).
 
 ### 2. The app
 
-```bash
-./target/release/snowpaw
+**On Windows (PowerShell):**
+```powershell
+.\target\release\snowpaw.exe
+# Or via the installer: Launch Snowpaw from the Start Menu
 ```
 
-Paste the connection code, log in, and you're in your Note to Self. On macOS,
-`packaging/macos/build-app.sh` builds `snowpaw.app`.
+**On Linux / macOS:**
+```bash
+./target/release/snowpaw
+# On macOS, packaging/macos/build-app.sh builds snowpaw.app
+```
+
+Paste the connection code, log in, and you're in your Note to Self.
 
 ### 3. An agent
 
@@ -103,6 +117,14 @@ Paste the connection code, log in, and you're in your Note to Self. On macOS,
 3. Issue a runtime token for the agent, then run its runtime with the two-line config
    the app shows:
 
+**On Windows (PowerShell):**
+```powershell
+.\target\release\snowpaw-agent.exe run --config agent.toml
+# Or with the helper script:
+.\run.ps1 -Component agent -Config agent.toml
+```
+
+**On Linux / macOS:**
 ```bash
 ./target/release/snowpaw-agent run --config agent.toml
 ```

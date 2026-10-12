@@ -132,7 +132,11 @@ fn cmd_init(dir: PathBuf) -> Result<(), String> {
     println!("TLS certificate fingerprint (pin this in clients):\n  {}", report.fingerprint);
     let cfg = Config::load(&report.config_path).map_err(|e| e.to_string())?;
     print_connection_code(&cfg)?;
-    println!("\nNext: snowpaw-server set-password --config {config}");
+    if cfg!(windows) {
+        println!("\nNext: snowpaw-server set-password --config \"{config}\"");
+    } else {
+        println!("\nNext: snowpaw-server set-password --config {config}");
+    }
     Ok(())
 }
 

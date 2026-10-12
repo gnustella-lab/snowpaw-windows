@@ -18,7 +18,9 @@ listen = "127.0.0.1:7443"
 allow_non_loopback = false
 
 # Where the database, TLS key, and certificate live. Must be an absolute path to a
-# directory owned by the user running the server, with mode 0700.
+# directory owned by the user running the server (mode 0700 on Unix, private ACL on Windows).
+# On Windows: e.g. "C:\\Users\\<user>\\AppData\\Roaming\\snowpaw\\data"
+# On Linux: e.g. "/var/lib/snowpaw" or "~/.local/share/snowpaw"
 data_dir = "/var/lib/snowpaw"
 
 [tls]
